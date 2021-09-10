@@ -48,6 +48,14 @@ def find_means(groupColumn1,groupColumn2,df):
     finalMeansDF.drop(columns=['rep','sub rep'],inplace=True)
     return finalMeansDF
 
+
+def transpose_file(df):
+    """
+    simple transpose for column based files
+    """
+    return df.T
+
+
 def main(argv):
     """
     time python3 pandas_joins.py -i
@@ -58,10 +66,12 @@ def main(argv):
     column_name = ''
     joinType = 'left'
     average = 0
+    transpose = None
+    remove_dups = None
 
     try:
         opts, args = getopt.getopt(
-            argv, "hi:m:o:c:j:a:", ["inputFile=", "matchFile=", "ofile=","column=","joinType=","average="])
+            argv, "hi:m:o:c:j:a:t:d:", ["inputFile=", "matchFile=", "ofile=","column=","joinType=","average=","transpose=","remove_dups="])
     except getopt.GetoptError:
         print('pandas_joins.py -i <inputFile> -m <matchFile> -o <ofile> -c <column> -a <average>\n\n')
         sys.exit(2)
@@ -80,10 +90,15 @@ def main(argv):
         elif opt in ("-c", "--column"):
             column_name = arg        
         elif opt in ("-a", "--average"):
-            average = arg        
+            average = arg
+        elif opt in ("-t", "--transpose"):
+            transpose = arg
+        elif opt in ("-d", "--remove_dups"):
+            remove_dups = arg
     print('Input file is ', inFile)
     print('Output file is ', outputfile)
     df1 = multi_parse(inFile)
+    ### Separate into specific functions
     cols = df1.columns.to_list()
     finalMeansDF = pd.DataFrame()
     if average != 0:
@@ -92,15 +107,19 @@ def main(argv):
     if matchFile != '':
         df2 = multi_parse(matchFile)
     joins = ['left', 'right', 'outer', 'inner', 'cross']                            # potential join types
-    if column_name != '' and joinType in joins:                                     # merge on column_name
-        merged_df = df1.merge(df2,on=column_name,how=joinType)
-    else:                                                                           # merge on index
-        merged_df = df1.join(df2,how=joinType)
-    #print(merged_df)
-    merged_df.to_excel("{}.{}.xlsx".format(outputfile,joinType))#,index=False)
-    # find remove duplicate rows based on columns
-    cols = column_name.strip().split(',')
-    newDF = df1.drop_duplicates(subset=cols)
+    if matchFile != '':
+        if column_name != '' and joinType in joins:                                     # merge on column_name
+            merged_df = df1.merge(df2,on=column_name,how=joinType)
+        else:                                                                           # merge on index
+            merged_df = df1.join(df2,how=joinType)
+        #print(merged_df)
+        merged_df.to_excel("{}.{}.xlsx".format(outputfile,joinType))#,index=False)
+    if remove_dups:
+        # find remove duplicate rows based on columns
+        cols = column_name.strip().split(',')
+        newDF = df1.drop_duplicates(subset=cols)
+    if transpose:
+        transpose_file(df1).to_excel(f"{outputfile}.transposed.xlsx")
     
 if __name__ == "__main__":
     main(sys.argv[1:])
