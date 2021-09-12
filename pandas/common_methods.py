@@ -56,6 +56,13 @@ def transpose_file(df):
     return df.T
 
 
+def drop_rows_by_string(df,col,string):
+    """
+    drop rows from dataframe where string based column contains a specific string/substring
+    """
+    return df[df[col].str.contains(string) == False]
+
+
 def main(argv):
     """
     time python3 pandas_joins.py -i
@@ -68,10 +75,11 @@ def main(argv):
     average = 0
     transpose = None
     remove_dups = None
+    string_row_drop = None
 
     try:
         opts, args = getopt.getopt(
-            argv, "hi:m:o:c:j:a:t:d:", ["inputFile=", "matchFile=", "ofile=","column=","joinType=","average=","transpose=","remove_dups="])
+            argv, "hi:m:o:c:j:a:t:d:s:", ["inputFile=", "matchFile=", "ofile=","column=","joinType=","average=","transpose=","remove_dups=","string_row_drop="])
     except getopt.GetoptError:
         print('pandas_joins.py -i <inputFile> -m <matchFile> -o <ofile> -c <column> -a <average>\n\n')
         sys.exit(2)
@@ -95,12 +103,16 @@ def main(argv):
             transpose = arg
         elif opt in ("-d", "--remove_dups"):
             remove_dups = arg
+        elif opt in ("-s", "--string_row_drop"):
+            string_row_drop = arg
+            
     print('Input file is ', inFile)
     print('Output file is ', outputfile)
     df1 = multi_parse(inFile)
     ### Separate into specific functions
     cols = df1.columns.to_list()
     finalMeansDF = pd.DataFrame()
+    newDF = pd.DataFrame()
     if average != 0:
         cols = df1.columns.to_list()
         finalMeansDF = find_means(cols[1],cols[0],df1)
@@ -120,6 +132,8 @@ def main(argv):
         newDF = df1.drop_duplicates(subset=cols)
     if transpose:
         transpose_file(df1).to_excel(f"{outputfile}.transposed.xlsx")
+    if string_row_drop:
+        newDF = drop_rows_by_string(df1,column_name,string_row_drop)
     
 if __name__ == "__main__":
     main(sys.argv[1:])
