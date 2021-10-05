@@ -1,5 +1,12 @@
 #!/usr/bin/python -tt
 
+"""
+To Add:
+difference of dataframes based on column
+addition of dataframes, horizontally and vertically
+"""
+
+
 import sys
 import getopt
 import os
@@ -125,7 +132,7 @@ def main(argv):
         else:                                                                           # merge on index
             merged_df = df1.join(df2,how=joinType)
         #print(merged_df)
-        merged_df.to_excel("{}.{}.xlsx".format(outputfile,joinType))#,index=False)
+        merged_df.to_excel(f"{outputfile}.{joinType}.xlsx",index=False)
     if remove_dups:
         # find remove duplicate rows based on columns
         cols = column_name.strip().split(',')
