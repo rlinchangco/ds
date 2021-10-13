@@ -70,6 +70,17 @@ def drop_rows_by_string(df,col,string):
     return df[df[col].str.contains(string) == False]
 
 
+def find_unique_in_col(df,col=None):
+    """
+    find unique items in column(col=something) or all columns(col=None)
+    """
+    if col:
+        print(df[col].unique())
+    else:
+        for column in df:
+            print(df[column].unique())
+
+
 def main(argv):
     """
     time python3 pandas_joins.py -i
@@ -116,6 +127,7 @@ def main(argv):
     print('Input file is ', inFile)
     print('Output file is ', outputfile)
     df1 = multi_parse(inFile)
+    find_unique_in_col(df1,"Sample Quality notes")
     ### Separate into specific functions
     cols = df1.columns.to_list()
     finalMeansDF = pd.DataFrame()
