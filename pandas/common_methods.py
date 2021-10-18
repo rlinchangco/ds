@@ -127,7 +127,7 @@ def main(argv):
     print('Input file is ', inFile)
     print('Output file is ', outputfile)
     df1 = multi_parse(inFile)
-    find_unique_in_col(df1,"Sample Quality notes")
+    find_unique_in_col(df1,column_name)
     ### Separate into specific functions
     cols = df1.columns.to_list()
     finalMeansDF = pd.DataFrame()
