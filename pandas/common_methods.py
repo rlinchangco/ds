@@ -81,9 +81,9 @@ def drop_rows_by_col_length(df,length,cols=[],sign='='):
     mask = None
     if sign == '=':
         mask = (df[cols[0]].str.len() == length) & (df[cols[1]].str.len() == length)
-    print(df.shape)
+    #print(df.shape)
     df = df.loc[mask]
-    print(df.shape)
+    #print(df.shape)
     return df
 
 
@@ -95,6 +95,7 @@ def drop_rows_by_multicol_str_val(df,val,cols=[]):
     # Figure out a way to let this be agnostic of column number https://newbedev.com/dynamically-filtering-a-pandas-dataframe
     for col in cols:
         df[col] = df[col].astype('str')
+        # Try using .loc[row_indexer,col_indexer] = value instead
     mask = (df[cols[0]] != val) & (df[cols[1]] != val)
     df = df.loc[mask]
     return df
