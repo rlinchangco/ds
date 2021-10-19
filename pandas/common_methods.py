@@ -70,6 +70,24 @@ def drop_rows_by_string(df,col,string):
     return df[df[col].str.contains(string) == False]
 
 
+def drop_rows_by_col_length(df,length,cols=[],sign='='):
+    """
+    drop rows from dataframe where string based column is greater than, equal to, or less than a certain length
+    cols is a list of possible columns
+    """
+    # Figure out a way to let this be agnostic of column number https://newbedev.com/dynamically-filtering-a-pandas-dataframe
+    for col in cols:
+        df[col] = df[col].astype('str')
+    mask = None
+    if sign == '=':
+        mask = (df[cols[0]].str.len() == length) & (df[cols[1]].str.len() == length)
+    print(df.shape)
+    df = df.loc[mask]
+    print(df.shape)
+    return df
+
+
+
 def find_unique_in_col(df,col=None):
     """
     find unique items in column(col=something) or all columns(col=None)
@@ -81,6 +99,17 @@ def find_unique_in_col(df,col=None):
             print(df[column].unique())
 
 
+def find_countunique_in_col(df,col=None):
+    """
+    find unique items in column(col=something) or all columns(col=None)
+    """
+    if col:
+        print(df[col].nunique())
+    else:
+        for column in df:
+            print(df[column].nunique())
+
+
 def main(argv):
     """
     time python3 pandas_joins.py -i
@@ -88,7 +117,7 @@ def main(argv):
     inFile = ''
     outputfile = ''
     matchFile = ''
-    column_name = ''
+    column_name = None
     joinType = 'left'
     average = 0
     transpose = None
@@ -127,32 +156,37 @@ def main(argv):
     print('Input file is ', inFile)
     print('Output file is ', outputfile)
     df1 = multi_parse(inFile)
-    find_unique_in_col(df1,column_name)
+
     ### Separate into specific functions
-    cols = df1.columns.to_list()
-    finalMeansDF = pd.DataFrame()
-    newDF = pd.DataFrame()
-    if average != 0:
-        cols = df1.columns.to_list()
-        finalMeansDF = find_means(cols[1],cols[0],df1)
-    if matchFile != '':
-        df2 = multi_parse(matchFile)
-    joins = ['left', 'right', 'outer', 'inner', 'cross']                            # potential join types
-    if matchFile != '':
-        if column_name != '' and joinType in joins:                                     # merge on column_name
-            merged_df = df1.merge(df2,on=column_name,how=joinType)
-        else:                                                                           # merge on index
-            merged_df = df1.join(df2,how=joinType)
-        #print(merged_df)
-        merged_df.to_excel(f"{outputfile}.{joinType}.xlsx",index=False)
-    if remove_dups:
-        # find remove duplicate rows based on columns
-        cols = column_name.strip().split(',')
-        newDF = df1.drop_duplicates(subset=cols)
-    if transpose:
-        transpose_file(df1).to_excel(f"{outputfile}.transposed.xlsx")
-    if string_row_drop:
-        newDF = drop_rows_by_string(df1,column_name,string_row_drop)
+    length_filtered_df = drop_rows_by_col_length(df1,1,cols=['REF','ALT'])
+    length_filtered_df.to_csv(outputfile,index=False)
+    # find_unique_in_col(df1,column_name)
+    # find_countunique_in_col(df1,column_name)    
+    # cols = df1.columns.to_list()
+    # finalMeansDF = pd.DataFrame()
+    # newDF = pd.DataFrame()
+    # if average != 0:
+    #     cols = df1.columns.to_list()
+    #     finalMeansDF = find_means(cols[1],cols[0],df1)
+    # if matchFile != '':
+    #     df2 = multi_parse(matchFile)
+    # joins = ['left', 'right', 'outer', 'inner', 'cross']                            # potential join types
+    # if matchFile != '':
+    #     if column_name != '' and joinType in joins:                                     # merge on column_name
+    #         merged_df = df1.merge(df2,on=column_name,how=joinType)
+    #     else:                                                                           # merge on index
+    #         merged_df = df1.join(df2,how=joinType)
+    #     #print(merged_df)
+    #     merged_df.to_excel(f"{outputfile}.{joinType}.xlsx",index=False)
+    # if remove_dups:
+    #     # find remove duplicate rows based on columns
+    #     cols = column_name.strip().split(',')
+    #     newDF = df1.drop_duplicates(subset=cols)
+    # if transpose:
+    #     transpose_file(df1).to_excel(f"{outputfile}.transposed.xlsx")
+    # if string_row_drop:
+    #     newDF = drop_rows_by_string(df1,column_name,string_row_drop)
+    
     
 if __name__ == "__main__":
     main(sys.argv[1:])
