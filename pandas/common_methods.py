@@ -123,6 +123,30 @@ def find_countunique_in_col(df,col=None):
             print(df[column].nunique())
 
 
+def remove_duplicates(df1,column_name):
+    """
+    find and remove duplicate rows based on columns
+    """
+    cols = column_name.strip().split(',')
+    newDF = df1.drop_duplicates(subset=cols)    
+    return newDF
+
+
+def df_join(df1,df2,column_name,other_column,joinType,joins,outputfile):
+    """
+    """
+    df1[column_name] = df1[column_name].astype('str')
+    df2[column_name] = df2[column_name].astype('str')
+    if column_name and not other_column and joinType in joins:                                     # merge on column_name
+        merged_df = df1.merge(df2,on=column_name,how=joinType)
+    elif column_name and other_column and joinType in joins:                                     # merge on column_name
+        merged_df = df1.merge(df2,left_on=column_name,right_on=other_column,how=joinType)
+    else:                                                                           # merge on index
+        merged_df = df1.join(df2,how=joinType)
+    #print(merged_df)
+    merged_df.to_excel(f"{outputfile}.{joinType}.xlsx",index=False)    
+
+
 def main(argv):
     """
     time python3 pandas_joins.py -i
@@ -131,6 +155,7 @@ def main(argv):
     outputfile = ''
     matchFile = ''
     column_name = None
+    other_column = None
     joinType = 'left'
     average = 0
     transpose = None
@@ -193,18 +218,9 @@ def main(argv):
         df2 = multi_parse(matchFile)
     joins = ['left', 'right', 'outer', 'inner', 'cross']                            # potential join types
     if matchFile != '':
-        df1[column_name] = df1[column_name].astype('str')
-        df2[column_name] = df2[column_name].astype('str')
-        if column_name != '' and joinType in joins:                                     # merge on column_name
-            merged_df = df1.merge(df2,on=column_name,how=joinType)
-        else:                                                                           # merge on index
-            merged_df = df1.join(df2,how=joinType)
-        #print(merged_df)
-        merged_df.to_excel(f"{outputfile}.{joinType}.xlsx",index=False)
+        df_join(df1,df2,column_name,other_column,joinType,joins,outputfile)
     if remove_dups:
-        # find remove duplicate rows based on columns
-        cols = column_name.strip().split(',')
-        newDF = df1.drop_duplicates(subset=cols)
+        newDF = remove_duplicates(df1,column_name)
     if transpose:
         transpose_file(df1).to_excel(f"{outputfile}.transposed.xlsx")
     if string_row_drop:
