@@ -220,9 +220,10 @@ def main(argv):
     if matchFile != '':
         df_join(df1,df2,column_name,other_column,joinType,joins,outputfile)
     if remove_dups:
-        newDF = remove_duplicates(df1,column_name)
+        remove_duplicates(df1,column_name).to_excel(f"{outputfile}.uniques.xlsx")
     if transpose:
-        transpose_file(df1).to_excel(f"{outputfile}.transposed.xlsx")
+        thisdf = transpose_file(df1.set_index(column_name))
+        thisdf.to_csv(f"{outputfile}.transposed.csv")
     if string_row_drop:
         newDF = drop_rows_by_string(df1,column_name,string_row_drop)
 
