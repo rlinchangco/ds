@@ -2,8 +2,14 @@
 
 import sys, getopt, os, collections
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 import plotly.express as px
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+from sklearn.cluster import KMeans
+from sklearn.mixture import GaussianMixture
+
 
 def globIt(crawlDir,extensions=[]):
     """
@@ -107,7 +113,7 @@ def plot_histo(x,col,outPath=None):
     # plt.close('all')    
 
 
-def plotly_plot(df,pType,x,labels=None,title=None,y=None,outPath=None):
+def plotly_plot(df,pType,x,labels=None,title=None,y=None,outPath=None,color=None):
     """
     df = dataframe (pandas)
     pTypes: hist,bar,
@@ -123,11 +129,92 @@ def plotly_plot(df,pType,x,labels=None,title=None,y=None,outPath=None):
     elif pType == 'violin':
         fig = px.violin(df, y=x, box=True, points='all', title=title)
         #fig = px.violin(df, y=x, color=df.index, violinmode='overlay')
+    elif pType == 'scatter':
+        if color:
+            fig = px.scatter(df, x=x, y=y, title=title, color=color)
+        else:
+            fig = px.scatter(df, x=x, y=y, title=title)
     ### Output
     if outPath:
         fig.write_html(f"{outPath}{x}.html")
     else:
         return fig
+
+
+def find_optimal_k(xy):
+    """
+    Unsupervised, runs elbow method to determine optimum cluster number, checks via silhouette method
+    Estimate cluster number by variance reduction
+    """
+    wcss = []               # within cluster sum of squares
+    for i in range(1, 5):
+        kmeans = KMeans(n_clusters = i, init = 'k-means++', random_state = 42)
+        kmeans.fit(xy)
+        wcss.append(kmeans.inertia_)
+    previous_slope = 0
+    # extract index(cluster num) when slope_dif drops below -1
+    elbow = 1000
+    stop = 0
+    opt_elbow = list()
+    for ind,val in enumerate(wcss):
+        if ind != 0:
+            slope = (val - wcss[ind-1])         # y(n) - y(n-1) / 1
+            if slope == 0:
+                opt_elbow = [ind,elbow]     # list(cluster num,slope_dif)
+                stop = 1
+                continue
+            slope_ratio = previous_slope/slope
+            slope_dif = previous_slope - slope
+            if slope_dif > 0:
+                slope_dif = -slope_dif
+                elbow = slope_dif
+            #print(elbow,slope_dif)
+            if elbow < slope_dif:
+                #print(elbow,slope_dif)
+                elbow = slope_dif
+                if elbow > -1 and stop == 0:
+                    opt_elbow = [ind,elbow]     # list(cluster num,slope_dif)
+                    stop = 1
+            print("Cluster:{}\tSlope:{}\n".format(ind, slope_dif))
+            previous_slope = slope
+    #plot_validation(range(1, 11), wcss,["Elbow Method","Num clusters","WCSS"])    
+    # Silhouette Validation
+    # sil = []
+    # kmax = 10
+    # for k in range(2, kmax+1):  # dissimilarity would not be defined for a single cluster, thus, minimum number of clusters should be 2
+    #     current_k = KMeans(n_clusters = k, init = 'k-means++', random_state = 42).fit(xy)
+    #     labels = current_k.labels_
+    #     sil.append(silhouette_score(xy, labels, metric = 'euclidean'))
+    # opt_clust1 = sil.index(max(sil)) + 2
+    # opt_clust2 = sil.index(max(sil)) + 2
+    # if opt_clust1 != opt_clust2:        # arbitrary assignment of 2nd best cluster
+    #     opt_clust1 = opt_clust2
+    # # add voting method?
+    #plot_validation(range(2,kmax+1),sil,["Silhouette","num clusters","Silhouette Score"])
+    #print("Elbow:\t{}\nSilhouette:\t{}".format(opt_elbow,opt_clust1))
+    if len(opt_elbow)<1:
+        print(f"Cannot find optimal K")
+        return 2
+    else:
+        if opt_elbow[0] > 3:
+            return 3
+        else:
+            return opt_elbow[0]
+
+
+def lower_bic(bic_list):
+    """
+    Find best n via Bayesian IC
+    """
+    lowest_val = 0
+    #second_low = 0
+    best_n = 2
+    for index,val in enumerate(bic_list):
+        if val < lowest_val and index <= 3:
+            lowest_val = val
+            best_n = index+1
+    
+    return best_n
 
 
 def main(argv):
@@ -237,7 +324,7 @@ def main(argv):
     cndsdOffVisDf["NUM_DGNS"] = cndsdOffVisDf["ICD9_DGNS_CD"].str.len()
     cndsdOffVisDf["NUM_PRCDR"] = cndsdOffVisDf["ICD9_PRCDR_CD"].str.len()
     cndsdOffVisDf["NUM_HCPCS"] = cndsdOffVisDf["HCPCS_CD"].str.len()
-    print(cndsdOffVisDf[["NUM_DGNS","NUM_PRCDR","NUM_HCPCS"]].describe())
+    # print(cndsdOffVisDf[["NUM_DGNS","NUM_PRCDR","NUM_HCPCS"]].describe())
     ### Count occurrence of office visits per claim
     cndsdOffVisDf['HCPCS_CD_STR'] = [','.join(map(str, l)) for l in cndsdOffVisDf['HCPCS_CD']]                  # new column collapsing list column into comma sep string column
     for offCode in offCodesList:
@@ -246,98 +333,130 @@ def main(argv):
     stdReport.write(f"Rows,Columns: {cndsdOffVisDf.shape}\n")
     # print(f"General Info:\n{offVisDf.info()}\n")
     stdReport.write(f"Inspect Outpatient Claim Values:\n{cndsdOffVisDf.head()}\n")
-
+    ### Investigate top 10 number of members, providers, physicians, and claim amounts
+    stdReport.write(f"Inspect top ten for claims:\n")
+    for col in ['DESYNPUF_ID','PRVDR_NUM','AT_PHYSN_NPI','OP_PHYSN_NPI','OT_PHYSN_NPI','CLM_PMT_AMT']:
+        stdReport.write(f"by {col}:\n{cndsdOffVisDf[col].value_counts()[:10]}\n")
+    
     #### DATA INSPECTION 
     ### Investigate NA CLAIM DATES
     noDateDf = cndsdOffVisDf.loc[offVisDf["CLM_FROM_DT"].isna()]
-    # print(noDateDf.describe())
-    ## High potential for fraud as no Office visit types are all 99211, with no procedures, and highly variant claim amounts
-    # for col in ['DESYNPUF_ID','PRVDR_NUM','AT_PHYSN_NPI','OP_PHYSN_NPI','OT_PHYSN_NPI','CLM_PMT_AMT']:
-    #     print(noDateDf[col].value_counts())
-    # print(noDateDf['CLM_PMT_AMT'].describe())
-    ## count      88.000000
-    ## mean      609.772727
-    ## std       934.060444
-    ## min         0.000000
-    ## 25%        60.000000
-    ## 50%       100.000000
-    ## 75%       700.000000
-    ## max      3300.000000
-    # print(noDateDf[['AT_PHYSN_NPI','OP_PHYSN_NPI','OT_PHYSN_NPI']])
-    ## All are null when dates are null
-    print(f"Percent fraudulent claims from missing data: {noDateDf.shape[0]/cndsdOffVisDf.shape[0]*100}%")
-    """
+    stdReport.write(f"Claims missing dates:\n{noDateDf.describe()}\n")
+    # High potential for fraud as no Office visit types are all 99211, with no procedures, and highly variant claim amounts
+    for col in ['DESYNPUF_ID','PRVDR_NUM','AT_PHYSN_NPI','OP_PHYSN_NPI','OT_PHYSN_NPI','CLM_PMT_AMT']:
+        print(noDateDf[col].value_counts())
+    stdReport.write(f"Descriptive statistics of missing date claims costs:\n{noDateDf['CLM_PMT_AMT'].describe()}\n")
+    # count      88.000000
+    # mean      609.772727
+    # std       934.060444
+    # min         0.000000
+    # 25%        60.000000
+    # 50%       100.000000
+    # 75%       700.000000
+    # max      3300.000000
+    stdReport.write(f"Looking at physicians for missid date claims:\n{noDateDf[['AT_PHYSN_NPI','OP_PHYSN_NPI','OT_PHYSN_NPI']]}\n")
+    # All are null when dates are null
+    stdReport.write(f"Percent fraudulent claims from missing data: {noDateDf.shape[0]/cndsdOffVisDf.shape[0]*100}%\n")
+
     #### FEATURE ENGINEERING    
     ### CLAIMS
     visPerYear = cndsdOffVisDf.groupby(["CLM_FROM_DT_YEAR"])["ALL_VIS_COUNT"].agg('sum')
-    visPerMonth = cndsdOffVisDf.groupby(["CLM_FROM_DT_MONTH"])["ALL_VIS_COUNT"].agg('sum')
     htmlList.append(plotly_plot(visPerYear,"bar","ALL_VIS_COUNT",title="Overall Office Visits Per Year"))
+    visPerMonth = cndsdOffVisDf.groupby(["CLM_FROM_DT_MONTH"])["ALL_VIS_COUNT"].agg('sum')
     htmlList.append(plotly_plot(visPerMonth,"bar","ALL_VIS_COUNT",title="Overall Office Visits Per Month"))
-    yearCounts = cndsdOffVisDf["CLM_FROM_DT_YEAR"].value_counts()                                               # assumption that each row has unique claim_id
-    monthCounts = cndsdOffVisDf["CLM_FROM_DT_MONTH"].value_counts()                                             # assumption that each row has unique claim_id
-    htmlList.append(plotly_plot(yearCounts,"hist","CLM_FROM_DT_YEAR",title="Claims Per Year"))
-    htmlList.append(plotly_plot(monthCounts,"hist","CLM_FROM_DT_MONTH",title="Claims Per Month"))
+    visitsPMPM=cndsdOffVisDf.groupby(['CLM_FROM_DT_MONTH'])["ALL_VIS_COUNT"].agg('sum')*1.0/cndsdOffVisDf.groupby('CLM_FROM_DT_MONTH').DESYNPUF_ID.nunique()
+    htmlList.append(plotly_plot(visitsPMPM,"bar",0,title="Visits Per Member Per Month",labels={'CLM_FROM_DT_MONTH':'Month','0':'Average Visits per Member'}))
+    visitsPPPM=cndsdOffVisDf.groupby(['CLM_FROM_DT_MONTH'])["ALL_VIS_COUNT"].agg('sum')*1.0/cndsdOffVisDf.groupby('CLM_FROM_DT_MONTH').PRVDR_NUM.nunique()
+    htmlList.append(plotly_plot(visitsPPPM,"bar",0,title="Visits Per Provider Per Month",labels={'CLM_FROM_DT_MONTH':'Month','0':'Average Visits per Provider'}))
+    visitsPDPM=cndsdOffVisDf.groupby(['CLM_FROM_DT_MONTH'])["ALL_VIS_COUNT"].agg('sum')*1.0/cndsdOffVisDf.groupby('CLM_FROM_DT_MONTH').AT_PHYSN_NPI.nunique()
+    htmlList.append(plotly_plot(visitsPDPM,"bar",0,title="Visits Per Physician Per Month",labels={'CLM_FROM_DT_MONTH':'Month','0':'Average Visits per Physician'}))
+    # yearCounts = cndsdOffVisDf["CLM_FROM_DT_YEAR"].value_counts()                                               # assumption that each row has unique claim_id
+    # monthCounts = cndsdOffVisDf["CLM_FROM_DT_MONTH"].value_counts()                                             # assumption that each row has unique claim_id
+    # htmlList.append(plotly_plot(yearCounts,"bar","CLM_FROM_DT_YEAR",title="Claims Per Year"))
+    # htmlList.append(plotly_plot(monthCounts,"bar","CLM_FROM_DT_MONTH",title="Claims Per Month"))
 
     #### COSTS
     ### Overall distribution of claim costs
-    htmlList.append(plotly_plot(cndsdOffVisDf,"hist","CLM_PMT_AMT"))
+    htmlList.append(plotly_plot(cndsdOffVisDf,"hist","CLM_PMT_AMT",title="Distribution of Claim Costs"))
     ### Outlier search of claim costs
-    htmlList.append(plotly_plot(cndsdOffVisDf,"violin","CLM_PMT_AMT"))
+    htmlList.append(plotly_plot(cndsdOffVisDf,"violin","CLM_PMT_AMT",title="Boxplot/Distribution of Claims Costs"))
     ### Claim costs over months
     clmPerMonth = cndsdOffVisDf.groupby(["CLM_FROM_DT_MONTH"])["CLM_PMT_AMT"].agg('sum')
-    htmlList.append(plotly_plot(clmPerMonth,"bar","CLM_PMT_AMT"))
+    htmlList.append(plotly_plot(clmPerMonth,"bar","CLM_PMT_AMT",title="Claim Costs Per Month",labels={"CLM_PMT_AMT": 'Summed Claim Costs', "CLM_FROM_DT_MONTH": "Month"}))
     ### Claim costs over years
     clmPerYear = cndsdOffVisDf.groupby(["CLM_FROM_DT_YEAR"])["CLM_PMT_AMT"].agg('sum')
-    htmlList.append(plotly_plot(clmPerYear,"bar","CLM_PMT_AMT"))
-    
-    
+    htmlList.append(plotly_plot(clmPerYear,"bar","CLM_PMT_AMT",title="Claim Costs Per Year",labels={"CLM_PMT_AMT": 'Summed Claim Costs', "CLM_FROM_DT_YEAR": "YEAR"}))
+    ### Claim costs per member per month
     costPMPM=cndsdOffVisDf.groupby(['CLM_FROM_DT_MONTH'])['CLM_PMT_AMT'].agg('sum')*1.0/cndsdOffVisDf.groupby('CLM_FROM_DT_MONTH').DESYNPUF_ID.nunique()
-    htmlList.append(plotly_plot(costPMPM,"bar",0,title="Claim Costs Per Member Per Month",labels={'CLM_FROM_DT_MONTH':'Month','0':'Average Member Claim Cost($)'}))
-    
+    sortedCostPMPM = costPMPM.sort_values(ascending=False)[:20]
+    htmlList.append(plotly_plot(sortedCostPMPM,"bar",0,title="Claim Costs Per Member Per Month",labels={'CLM_FROM_DT_MONTH':'Month','0':'Average Member Claim Cost($)'}))
+    ### Claim costs per provider per month
     costPPPM=cndsdOffVisDf.groupby(['CLM_FROM_DT_MONTH'])['CLM_PMT_AMT'].agg('sum')*1.0/cndsdOffVisDf.groupby('CLM_FROM_DT_MONTH').PRVDR_NUM.nunique()
-    htmlList.append(plotly_plot(costPPPM,"bar",0,title="Claim Costs Per Provider Per Month"),labels={'CLM_FROM_DT_MONTH':'Month','0':'Average Provider Claim Cost($)'})
-    
+    sortedCostPPPM = costPPPM.sort_values(ascending=False)[:20]
+    htmlList.append(plotly_plot(sortedCostPPPM,"bar",0,title="Claim Costs Per Provider Per Month",labels={'CLM_FROM_DT_MONTH':'Month','0':'Average Provider Claim Cost($)'}))
+    ### Claim costs per member per year
     costPMPY=cndsdOffVisDf.groupby(['CLM_FROM_DT_YEAR'])['CLM_PMT_AMT'].agg('sum')*1.0/cndsdOffVisDf.groupby('CLM_FROM_DT_YEAR').DESYNPUF_ID.nunique()
-    htmlList.append(plotly_plot(costPMPM,"bar",0,title="Claim Costs Per Member Per Year",labels={'CLM_FROM_DT_YEAR':'Year','0':'Average Member Claim Cost($)'}))
-    
+    sortedCostPMPY = costPMPY.sort_values(ascending=False)[:20]
+    htmlList.append(plotly_plot(sortedCostPMPY,"bar",0,title="Claim Costs Per Member Per Year",labels={'CLM_FROM_DT_YEAR':'Year','0':'Average Member Claim Cost($)'}))
+    ### Claim costs per provider per year
     costPPPY=cndsdOffVisDf.groupby(['CLM_FROM_DT_YEAR'])['CLM_PMT_AMT'].agg('sum')*1.0/cndsdOffVisDf.groupby('CLM_FROM_DT_YEAR').PRVDR_NUM.nunique()
-    htmlList.append(plotly_plot(costPPPY,"bar",0,title="Claim Costs Per Provider Per Year",labels={'CLM_FROM_DT_YEAR':'Year','0':'Average Provider Claim Cost($)'}))
- 
-    print(f"{cndsdOffVisDf.DESYNPUF_ID.nunique()}")
-    print(f"{cndsdOffVisDf.PRVDR_NUM.nunique()}")
-    """
-    """    
+    sortedCostPPPY = costPPPY.sort_values(ascending=False)[:20]
+    htmlList.append(plotly_plot(sortedCostPPPY,"bar",0,title="Claim Costs Per Provider Per Year",labels={'CLM_FROM_DT_YEAR':'Year','0':'Average Provider Claim Cost($)'}))
     ### Claim costs for each member
     clmCostByMember = offVisDf.groupby(["DESYNPUF_ID"])["CLM_PMT_AMT"].agg('sum')
-    htmlList.append(plotly_plot(clmCostByMember,"bar",clmCostByMember.index,"CLM_PMT_AMT"))
+    sortedClmCostByMember = clmCostByMember.sort_values(ascending=False)[:20]
+    htmlList.append(plotly_plot(sortedClmCostByMember,"bar","CLM_PMT_AMT",title="Claim Costs Per Provider"))
     ### Claim costs for each provider
     clmCostByProvider = cndsdOffVisDf.groupby(["PRVDR_NUM"])["CLM_PMT_AMT"].agg('sum')
-    htmlList.append(plotly_plot(clmCostByProvider,"bar","CLM_PMT_AMT",title="Claim Costs Per Provider"))
-    ### Per Claims Costs Per Beneficiary
-    perClaimsCostPerBenef = offVisDf.groupby(['CLM_FROM_DT_MONTH'])['CLM_PMT_AMT'].agg('sum')*1.0/offVisDf.groupby('CLM_FROM_DT_MONTH').DESYNPUF_ID.nunique()
-    print(perClaimsCostPerBenef)
-    htmlList.append(plotly_plot(perClaimsCostPerBenef,"bar",clmCostByProvider.index,0))
-    """
+    sortedClmCostByProvider = clmCostByProvider.sort_values(ascending=False)[:20]
+    htmlList.append(plotly_plot(sortedClmCostByProvider,"bar","CLM_PMT_AMT",title="Claim Costs Per Provider"))
+    ### Claim costs for each attending physician
+    clmCostByPhysician = cndsdOffVisDf.groupby(["AT_PHYSN_NPI"])["CLM_PMT_AMT"].agg('sum')
+    sortedClmCostByPhysician = clmCostByPhysician.sort_values(ascending=False)[:20]
+    htmlList.append(plotly_plot(sortedClmCostByPhysician,"bar","CLM_PMT_AMT",title="Claim Costs Per Physician"))
+    
+    # #### PCA
+    # features = []                                       # TBD
+    # x = cndsdOffVisDf[features]
+    # x = StandardScaler().fit_transform(x)       
+    # pca = PCA(n_components=2)
+    # # pca = PCA(.95)                                    # or find optimal components by capturing 95% variance
+    # principalComponents = pca.fit_transform(x)
+    # principalDf = pd.DataFrame(data = principalComponents, columns = ["principal component 1", "principal component 2"])
+    
+    # ### Plot PCA and write to html
+    # htmlList.append(plotly_plot(principalDf,"scatter","principal component 1", y="principal component 2",title="PCA"))
+    
+    # #### Clustering
+    # train = []                                          # TBD
+    # test = []                                           # TBD
+    # ### KMeans
+    ## opt_k = find_optimal_k(principalDf)                   # If n is unknown, use as argument for n_clusters
+    # k_fit = KMeans(n_clusters=2, init = 'k-means++', random_state=42,).fit(train) # Assume best n is 2 for finding fraud and not fraud
+    # classifications = k_fit.predict(test)
+    # ### Gaussian Mixture Models                             
+    ## n_components = np.arange(1, 6)
+    ## models = [GaussianMixture(n, covariance_type='full', random_state=0, warm_start=True).fit(train) for n in n_components]
+    ## bic_list = [m.bic(train) for m in models]                          # run BIC once
+    ## best_n = lower_bic(bic_list)                           # If n is unknown, use as argument for n_components
+    # gmm = GaussianMixture(n_components=2, covariance_type='full', warm_start=True).fit(train) # Assume best n is 2 for finding fraud and not fraud
+    # gmm_probabilities = gmm.predict_proba(test)             # Probability for each position to be in each cluster
+    # clust_cent = gmm.cluster_centers_                       # cluster centers
+    # gmm_pred = gmm.predict(test)                            # prediction of clusters
+
+    # ### Plot Clusters to html
+    # htmlList.append(plotly_plot(principalDf,"scatter","principal component 1",y="principal component 2",title="Fraudulent Claims KMeans",color=classifications))
+    # htmlList.append(plotly_plot(principalDf,"scatter","principal component 1",y="principal component 2",title="Fraudulent Claims GMM",color=gmm_pred))
+    
     ### Write out plotly visuzlizations to HTML file for interactive
-    with open('/Users/cerebellum/Downloads/thfirst/fraud_visualizations.html', 'a') as f:
+    with open(f"{inputPath}fraud_visualizations.html", 'a') as f:
         for plotFig in htmlList:
             f.write(plotFig.to_html(full_html=False, include_plotlyjs='cdn'))
         f.close()
-    
+
     ### End analysis
     stdReport.flush()
     stdReport.close()
 
 if __name__ == "__main__":
     main(sys.argv[1:])
-
-
-    ### Inspect number of unique elements per column
-    # unique_count = offVisDf.nunique(axis=0)
-    ### Inspect unique elements per column (search for anomalous elements)
-    # atd_dr = offVisDf["AT_PHYSN_NPI"].value_counts()
-    # opr_dr = offVisDf["OP_PHYSN_NPI"].value_counts()
-    # print(atd_dr)
-    # print(opr_dr)
-    #stdReport.write(unique_count)
-    #stdReport.write(unique_table)
