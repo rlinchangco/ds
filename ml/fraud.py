@@ -141,6 +141,33 @@ def plotly_plot(df,pType,x,labels=None,title=None,y=None,outPath=None,color=None
         return fig
 
 
+def plotly_htmls(outpath,fileName,htmlFigList):
+    """
+    Write out plotly visuzlizations to HTML file for interactive
+    """
+    with open(f"{outpath}/assessments/{fileName}.html", 'a') as f:
+        for plotFig in htmlFigList:
+            f.write(plotFig.to_html(full_html=False, include_plotlyjs='cdn'))
+        f.close()
+
+
+def tukey(x, k = 1.5):
+    x = np.array(x).copy().astype(float)
+    first_quartile = np.quantile(x, .25)
+    third_quartile = np.quantile(x, .75)
+    
+    # Define IQR
+    iqr = third_quartile - first_quartile
+    
+    ### Define the allowed limits for 'Normal Data'
+    lower_allowed_limit = first_quartile - (k * iqr)
+    upper_allowed_limit = third_quartile + (k * iqr)
+    
+    #set values below the lower limit/above the upper limit as nan
+    x[(x<lower_allowed_limit) | (x>upper_allowed_limit)] = np.nan
+    return x
+
+
 def find_optimal_k(xy):
     """
     Unsupervised, runs elbow method to determine optimum cluster number, checks via silhouette method
@@ -247,7 +274,8 @@ def main(argv):
 
     if not inputPath.endswith('/'):                             # add trailing directory separator if needed
         inputPath += '/'
-    stdReport = open(inputPath+'runReport.txt','w')
+    outpath = '/'.join(inputPath.split('/')[:-2])
+    stdReport = open(f"{outpath}/assessments/runReport.txt",'w')
     stdReport.write(f'Input path is {inputPath}\n')
     fileList = globIt(inputPath,[fileEnd])
     stdReport.write(f"Files retrieved:\n{fileList}\n")
@@ -270,7 +298,7 @@ def main(argv):
     stdReport.write("Beneficiary Null Report\n")
     stdReport.write(check_nulls(benefDf))    
     # print(f"BENEFICIARIES General Info:\n")
-    # print(benefDf.head())
+    print(benefDf.head())
     
     ### Outpatient Claims Dataframe
     stdReport.write("Claims Data:\n")
@@ -338,7 +366,7 @@ def main(argv):
     for col in ['DESYNPUF_ID','PRVDR_NUM','AT_PHYSN_NPI','OP_PHYSN_NPI','OT_PHYSN_NPI','CLM_PMT_AMT']:
         stdReport.write(f"by {col}:\n{cndsdOffVisDf[col].value_counts()[:10]}\n")
     
-    #### DATA INSPECTION 
+    #### DATA INSPECTION
     ### Investigate NA CLAIM DATES
     noDateDf = cndsdOffVisDf.loc[offVisDf["CLM_FROM_DT"].isna()]
     stdReport.write(f"Claims missing dates:\n{noDateDf.describe()}\n")
@@ -346,75 +374,93 @@ def main(argv):
     for col in ['DESYNPUF_ID','PRVDR_NUM','AT_PHYSN_NPI','OP_PHYSN_NPI','OT_PHYSN_NPI','CLM_PMT_AMT']:
         print(noDateDf[col].value_counts())
     stdReport.write(f"Descriptive statistics of missing date claims costs:\n{noDateDf['CLM_PMT_AMT'].describe()}\n")
-    # count      88.000000
-    # mean      609.772727
-    # std       934.060444
-    # min         0.000000
-    # 25%        60.000000
-    # 50%       100.000000
-    # 75%       700.000000
-    # max      3300.000000
-    stdReport.write(f"Looking at physicians for missid date claims:\n{noDateDf[['AT_PHYSN_NPI','OP_PHYSN_NPI','OT_PHYSN_NPI']]}\n")
+    stdReport.write(f"Looking at physicians for missing date claims:\n{noDateDf[['AT_PHYSN_NPI','OP_PHYSN_NPI','OT_PHYSN_NPI']]}\n")
     # All are null when dates are null
     stdReport.write(f"Percent fraudulent claims from missing data: {noDateDf.shape[0]/cndsdOffVisDf.shape[0]*100}%\n")
 
     #### FEATURE ENGINEERING    
-    ### CLAIMS
+    ### VISITS
+    visitList = []
     visPerYear = cndsdOffVisDf.groupby(["CLM_FROM_DT_YEAR"])["ALL_VIS_COUNT"].agg('sum')
-    htmlList.append(plotly_plot(visPerYear,"bar","ALL_VIS_COUNT",title="Overall Office Visits Per Year"))
+    visitList.append(plotly_plot(visPerYear,"bar","ALL_VIS_COUNT",title="Overall Office Visits Per Year"))
     visPerMonth = cndsdOffVisDf.groupby(["CLM_FROM_DT_MONTH"])["ALL_VIS_COUNT"].agg('sum')
-    htmlList.append(plotly_plot(visPerMonth,"bar","ALL_VIS_COUNT",title="Overall Office Visits Per Month"))
-    visitsPMPM=cndsdOffVisDf.groupby(['CLM_FROM_DT_MONTH'])["ALL_VIS_COUNT"].agg('sum')*1.0/cndsdOffVisDf.groupby('CLM_FROM_DT_MONTH').DESYNPUF_ID.nunique()
-    htmlList.append(plotly_plot(visitsPMPM,"bar",0,title="Visits Per Member Per Month",labels={'CLM_FROM_DT_MONTH':'Month','0':'Average Visits per Member'}))
-    visitsPPPM=cndsdOffVisDf.groupby(['CLM_FROM_DT_MONTH'])["ALL_VIS_COUNT"].agg('sum')*1.0/cndsdOffVisDf.groupby('CLM_FROM_DT_MONTH').PRVDR_NUM.nunique()
-    htmlList.append(plotly_plot(visitsPPPM,"bar",0,title="Visits Per Provider Per Month",labels={'CLM_FROM_DT_MONTH':'Month','0':'Average Visits per Provider'}))
-    visitsPDPM=cndsdOffVisDf.groupby(['CLM_FROM_DT_MONTH'])["ALL_VIS_COUNT"].agg('sum')*1.0/cndsdOffVisDf.groupby('CLM_FROM_DT_MONTH').AT_PHYSN_NPI.nunique()
-    htmlList.append(plotly_plot(visitsPDPM,"bar",0,title="Visits Per Physician Per Month",labels={'CLM_FROM_DT_MONTH':'Month','0':'Average Visits per Physician'}))
+    visitList.append(plotly_plot(visPerMonth,"bar","ALL_VIS_COUNT",title="Overall Office Visits Per Month"))
+    aveVisitsPMPM=cndsdOffVisDf.groupby(['CLM_FROM_DT_MONTH'])["ALL_VIS_COUNT"].agg('sum')*1.0/cndsdOffVisDf.groupby('CLM_FROM_DT_MONTH').DESYNPUF_ID.nunique()
+    visitList.append(plotly_plot(aveVisitsPMPM,"bar",0,title="Visits Per Member Per Month",labels={'CLM_FROM_DT_MONTH':'Month','0':'Average Visits per Member'}))
+    aveVisitsPPPM=cndsdOffVisDf.groupby(['CLM_FROM_DT_MONTH'])["ALL_VIS_COUNT"].agg('sum')*1.0/cndsdOffVisDf.groupby('CLM_FROM_DT_MONTH').PRVDR_NUM.nunique()
+    visitList.append(plotly_plot(aveVisitsPPPM,"bar",0,title="Visits Per Provider Per Month",labels={'CLM_FROM_DT_MONTH':'Month','0':'Average Visits per Provider'}))
+    aveVisitsPDPM=cndsdOffVisDf.groupby(['CLM_FROM_DT_MONTH'])["ALL_VIS_COUNT"].agg('sum')*1.0/cndsdOffVisDf.groupby('CLM_FROM_DT_MONTH').AT_PHYSN_NPI.nunique()
+    visitList.append(plotly_plot(aveVisitsPDPM,"bar",0,title="Visits Per Physician Per Month",labels={'CLM_FROM_DT_MONTH':'Month','0':'Average Visits per Physician'}))
     # yearCounts = cndsdOffVisDf["CLM_FROM_DT_YEAR"].value_counts()                                               # assumption that each row has unique claim_id
     # monthCounts = cndsdOffVisDf["CLM_FROM_DT_MONTH"].value_counts()                                             # assumption that each row has unique claim_id
     # htmlList.append(plotly_plot(yearCounts,"bar","CLM_FROM_DT_YEAR",title="Claims Per Year"))
     # htmlList.append(plotly_plot(monthCounts,"bar","CLM_FROM_DT_MONTH",title="Claims Per Month"))
 
     #### COSTS
+    costsList = []
     ### Overall distribution of claim costs
-    htmlList.append(plotly_plot(cndsdOffVisDf,"hist","CLM_PMT_AMT",title="Distribution of Claim Costs"))
+    # costsList.append(plotly_plot(cndsdOffVisDf,"hist","CLM_PMT_AMT",title="Distribution of Claim Costs"))
     ### Outlier search of claim costs
     htmlList.append(plotly_plot(cndsdOffVisDf,"violin","CLM_PMT_AMT",title="Boxplot/Distribution of Claims Costs"))
     ### Claim costs over months
-    clmPerMonth = cndsdOffVisDf.groupby(["CLM_FROM_DT_MONTH"])["CLM_PMT_AMT"].agg('sum')
-    htmlList.append(plotly_plot(clmPerMonth,"bar","CLM_PMT_AMT",title="Claim Costs Per Month",labels={"CLM_PMT_AMT": 'Summed Claim Costs', "CLM_FROM_DT_MONTH": "Month"}))
+    # clmPerMonth = cndsdOffVisDf.groupby(["CLM_FROM_DT_MONTH"])["CLM_PMT_AMT"].agg('sum')
+    # costsList.append(plotly_plot(clmPerMonth,"bar","CLM_PMT_AMT",title="Claim Costs Per Month",labels={"CLM_PMT_AMT": 'Summed Claim Costs', "CLM_FROM_DT_MONTH": "Month"}))
     ### Claim costs over years
-    clmPerYear = cndsdOffVisDf.groupby(["CLM_FROM_DT_YEAR"])["CLM_PMT_AMT"].agg('sum')
-    htmlList.append(plotly_plot(clmPerYear,"bar","CLM_PMT_AMT",title="Claim Costs Per Year",labels={"CLM_PMT_AMT": 'Summed Claim Costs', "CLM_FROM_DT_YEAR": "YEAR"}))
+    # clmPerYear = cndsdOffVisDf.groupby(["CLM_FROM_DT_YEAR"])["CLM_PMT_AMT"].agg('sum')
+    # costsList.append(plotly_plot(clmPerYear,"bar","CLM_PMT_AMT",title="Claim Costs Per Year",labels={"CLM_PMT_AMT": 'Summed Claim Costs', "CLM_FROM_DT_YEAR": "YEAR"}))
     ### Claim costs per member per month
     costPMPM=cndsdOffVisDf.groupby(['CLM_FROM_DT_MONTH'])['CLM_PMT_AMT'].agg('sum')*1.0/cndsdOffVisDf.groupby('CLM_FROM_DT_MONTH').DESYNPUF_ID.nunique()
     sortedCostPMPM = costPMPM.sort_values(ascending=False)[:20]
-    htmlList.append(plotly_plot(sortedCostPMPM,"bar",0,title="Claim Costs Per Member Per Month",labels={'CLM_FROM_DT_MONTH':'Month','0':'Average Member Claim Cost($)'}))
+    costsList.append(plotly_plot(sortedCostPMPM,"bar",0,title="Top 20 Claim Costs Per Member Per Month",labels={'CLM_FROM_DT_MONTH':'Month','0':'Average Member Claim Cost($)'}))
     ### Claim costs per provider per month
     costPPPM=cndsdOffVisDf.groupby(['CLM_FROM_DT_MONTH'])['CLM_PMT_AMT'].agg('sum')*1.0/cndsdOffVisDf.groupby('CLM_FROM_DT_MONTH').PRVDR_NUM.nunique()
     sortedCostPPPM = costPPPM.sort_values(ascending=False)[:20]
-    htmlList.append(plotly_plot(sortedCostPPPM,"bar",0,title="Claim Costs Per Provider Per Month",labels={'CLM_FROM_DT_MONTH':'Month','0':'Average Provider Claim Cost($)'}))
+    costsList.append(plotly_plot(sortedCostPPPM,"bar",0,title="Top 20 Claim Costs Per Provider Per Month",labels={'CLM_FROM_DT_MONTH':'Month','0':'Average Provider Claim Cost($)'}))
     ### Claim costs per member per year
     costPMPY=cndsdOffVisDf.groupby(['CLM_FROM_DT_YEAR'])['CLM_PMT_AMT'].agg('sum')*1.0/cndsdOffVisDf.groupby('CLM_FROM_DT_YEAR').DESYNPUF_ID.nunique()
     sortedCostPMPY = costPMPY.sort_values(ascending=False)[:20]
-    htmlList.append(plotly_plot(sortedCostPMPY,"bar",0,title="Claim Costs Per Member Per Year",labels={'CLM_FROM_DT_YEAR':'Year','0':'Average Member Claim Cost($)'}))
+    costsList.append(plotly_plot(sortedCostPMPY,"bar",0,title="Top 20 Claim Costs Per Member Per Year",labels={'CLM_FROM_DT_YEAR':'Year','0':'Average Member Claim Cost($)'}))
     ### Claim costs per provider per year
     costPPPY=cndsdOffVisDf.groupby(['CLM_FROM_DT_YEAR'])['CLM_PMT_AMT'].agg('sum')*1.0/cndsdOffVisDf.groupby('CLM_FROM_DT_YEAR').PRVDR_NUM.nunique()
     sortedCostPPPY = costPPPY.sort_values(ascending=False)[:20]
-    htmlList.append(plotly_plot(sortedCostPPPY,"bar",0,title="Claim Costs Per Provider Per Year",labels={'CLM_FROM_DT_YEAR':'Year','0':'Average Provider Claim Cost($)'}))
-    ### Claim costs for each member
-    clmCostByMember = offVisDf.groupby(["DESYNPUF_ID"])["CLM_PMT_AMT"].agg('sum')
-    sortedClmCostByMember = clmCostByMember.sort_values(ascending=False)[:20]
-    htmlList.append(plotly_plot(sortedClmCostByMember,"bar","CLM_PMT_AMT",title="Claim Costs Per Provider"))
+    costsList.append(plotly_plot(sortedCostPPPY,"bar",0,title="Top 20 Claim Costs Per Provider Per Year",labels={'CLM_FROM_DT_YEAR':'Year','0':'Average Provider Claim Cost($)'}))
     ### Claim costs for each provider
     clmCostByProvider = cndsdOffVisDf.groupby(["PRVDR_NUM"])["CLM_PMT_AMT"].agg('sum')
     sortedClmCostByProvider = clmCostByProvider.sort_values(ascending=False)[:20]
-    htmlList.append(plotly_plot(sortedClmCostByProvider,"bar","CLM_PMT_AMT",title="Claim Costs Per Provider"))
+    costsList.append(plotly_plot(sortedClmCostByProvider,"bar","CLM_PMT_AMT",title="Top 20 Claim Costs Per Provider"))
     ### Claim costs for each attending physician
     clmCostByPhysician = cndsdOffVisDf.groupby(["AT_PHYSN_NPI"])["CLM_PMT_AMT"].agg('sum')
     sortedClmCostByPhysician = clmCostByPhysician.sort_values(ascending=False)[:20]
-    htmlList.append(plotly_plot(sortedClmCostByPhysician,"bar","CLM_PMT_AMT",title="Claim Costs Per Physician"))
-    
+    costsList.append(plotly_plot(sortedClmCostByPhysician,"bar","CLM_PMT_AMT",title="Top 20 Claim Costs Per Physician"))
+    ### Average monthly claim costs by attending physician
+    clmCostByPhysicianByMonth = cndsdOffVisDf.groupby(["AT_PHYSN_NPI"])["CLM_PMT_AMT"].agg('sum')*1.0/cndsdOffVisDf.CLM_FROM_DT_MONTH.nunique() 
+    sortedclmCostByPhysicianByMonth = clmCostByPhysicianByMonth.sort_values(ascending=False)[:20]
+    costsList.append(plotly_plot(sortedclmCostByPhysicianByMonth,"bar","CLM_PMT_AMT",title="Top 20 Average Claim Costs Per Physician Per Month",labels={"CLM_PMT_AMT":"Average Monthly Claim Cost", "AT_PHYSN_NPI":"Physician ID"}))
+    ### Average monthly claim costs by attending physician
+    clmCostByProviderByMonth = cndsdOffVisDf.groupby(["PRVDR_NUM"])["CLM_PMT_AMT"].agg('sum')*1.0/cndsdOffVisDf.CLM_FROM_DT_MONTH.nunique() 
+    sortedclmCostByProviderByMonth = clmCostByProviderByMonth.sort_values(ascending=False)[:20]
+    costsList.append(plotly_plot(sortedclmCostByProviderByMonth,"bar","CLM_PMT_AMT",title="Top 20 Average Claim Costs Per Provider Per Month",labels={"CLM_PMT_AMT":"Average Monthly Claim Cost", "PRVDR_NUM":"Provider ID"}))
+
+    clmsByProvider = cndsdOffVisDf.groupby("PRVDR_NUM")["CLM_ID"].nunique()
+    sortedclmsByProvider = clmsByProvider.sort_values(ascending=False)[:20]
+    costsList.append(plotly_plot(sortedclmsByProvider,"bar","CLM_ID",title="Top 20 Providers By Number of Claims",labels={"CLM_ID":"Number of Claims", "PRVDR_NUM":"Provider ID"}))
+    clmsByPhysician = cndsdOffVisDf.groupby("AT_PHYSN_NPI")["CLM_ID"].nunique()
+    sortedclmsByPhysician = clmsByPhysician.sort_values(ascending=False)[:20]
+    costsList.append(plotly_plot(sortedclmsByPhysician,"bar","CLM_ID",title="Top 20 Physicians By Number of Claims",labels={"CLM_ID":"Number of Claims", "AT_PHYSN_NPI":"Physician ID"}))
+    # ### Visits for each provider per month
+    # visitsPPPM=cndsdOffVisDf.groupby(['PRVDR_NUM','CLM_FROM_DT_MONTH'])["ALL_VIS_COUNT"].agg('sum')
+    # #sortedVisitsPPPM = visitsPPPM.sort_values(ascending=False)[:20]
+    # #print(sortedVisitsPPPM)
+    # ax = visitsPPPM.unstack(level=0).plot(kind='bar', subplots=True, rot=0, figsize=(9, 7), layout=(5, 4))
+    # plt.tight_layout()
+    # plt.show()
+
+    # #htmlList.append(plotly_plot(sortedVisitsPPPM,"bar","CLM_FROM_DT_MONTH",title="Visits Per Provider Per Month",labels={'CLM_FROM_DT_MONTH':'Month','0':'Visits per Provider'}))
+    # ### Visits for each each physician per month
+    # visitsPDPM=cndsdOffVisDf.groupby(['AT_PHYSN_NPI','CLM_FROM_DT_MONTH'])["ALL_VIS_COUNT"].agg('sum')
+    # sortedVisitsPDPM = visitsPDPM.sort_values(ascending=False)[:20]
+    # htmlList.append(plotly_plot(sortedVisitsPDPM,"bar","ALL_VIS_COUNT",title="Visits Per Physician Per Month",labels={'CLM_FROM_DT_MONTH':'Month','0':'Visits per Physician'}))
+
     # #### PCA
     # features = []                                       # TBD
     # x = cndsdOffVisDf[features]
@@ -449,10 +495,8 @@ def main(argv):
     # htmlList.append(plotly_plot(principalDf,"scatter","principal component 1",y="principal component 2",title="Fraudulent Claims GMM",color=gmm_pred))
     
     ### Write out plotly visuzlizations to HTML file for interactive
-    with open(f"{inputPath}fraud_visualizations.html", 'a') as f:
-        for plotFig in htmlList:
-            f.write(plotFig.to_html(full_html=False, include_plotlyjs='cdn'))
-        f.close()
+    for figList in [("general_vis",htmlList),("visit_vis",visitList),("claim_cost_vis",costsList)]:
+        plotly_htmls(outpath,figList[0],figList[1])
 
     ### End analysis
     stdReport.flush()

@@ -70,6 +70,19 @@ def drop_rows_by_string(df,col,string):
     return df[df[col].str.contains(string) == False]
 
 
+def drop_rows_by_list(df,col,search_List,in_out='in'):
+    """
+    NEEDS MORE TESTING
+    drop rows from dataframe where values are or are not in list (using ~)
+    'in' returns df with rows matching list
+    anything else returns df with rows not matching list
+    """
+    if in_out != 'in':
+        return df[~df[col].isin(search_List)]
+    else:
+        return df[df[col].isin(search_List)]
+
+
 def main(argv):
     """
     time python3 pandas_joins.py -i
@@ -83,10 +96,12 @@ def main(argv):
     transpose = None
     remove_dups = None
     string_row_drop = None
+    list_drop = None
+    search_list = None
 
     try:
         opts, args = getopt.getopt(
-            argv, "hi:m:o:c:j:a:t:d:s:", ["inputFile=", "matchFile=", "ofile=","column=","joinType=","average=","transpose=","remove_dups=","string_row_drop="])
+            argv, "hi:m:o:c:j:a:t:d:s:l:q:", ["inputFile=", "matchFile=", "ofile=","column=","joinType=","average=","transpose=","remove_dups=","string_row_drop=","list_drop=","search_list="])
     except getopt.GetoptError:
         print('pandas_joins.py -i <inputFile> -m <matchFile> -o <ofile> -c <column> -a <average>\n\n')
         sys.exit(2)
@@ -112,6 +127,10 @@ def main(argv):
             remove_dups = arg
         elif opt in ("-s", "--string_row_drop"):
             string_row_drop = arg
+        elif opt in ("-l", "--list_drop"):
+            list_drop = arg
+        elif opt in ("-q", "--search_list"):
+            search_list = arg       # comma separated list     
             
     print('Input file is ', inFile)
     print('Output file is ', outputfile)
@@ -137,10 +156,23 @@ def main(argv):
         # find remove duplicate rows based on columns
         cols = column_name.strip().split(',')
         newDF = df1.drop_duplicates(subset=cols)
+        print(newDF.shape)
     if transpose:
         transpose_file(df1).to_excel(f"{outputfile}.transposed.xlsx")
     if string_row_drop:
+        print(df1.shape)
         newDF = drop_rows_by_string(df1,column_name,string_row_drop)
-    
+        print(newDF.shape)
+        newDF.to_excel(f"{outputfile}.removed.xlsx",index=False)
+    if list_drop:
+        print("HERE")
+        search_list = search_list.strip().split(',')
+        print(search_list)
+        print(df1.shape)
+        print(df1[column_name])
+        newDF = drop_rows_by_list(df1,column_name,search_list,in_out='NOT')
+        print(newDF.shape)
+        newDF.to_excel(f"{outputfile}.removed.xlsx",index=False)
+
 if __name__ == "__main__":
     main(sys.argv[1:])
