@@ -4,6 +4,8 @@
 To Add:
 difference of dataframes based on column
 addition of dataframes, horizontally and vertically
+Remove nan rows different ways:
+https://stackoverflow.com/questions/13413590/how-to-drop-rows-of-pandas-dataframe-whose-value-in-a-certain-column-is-nan
 """
 
 
